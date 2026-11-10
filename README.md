@@ -2,10 +2,10 @@
 
 ## How to Use
 ```
-cargo run <path-to-brainfuck-file>
+cargo run -- <path-to-brainfuck-file>
 ```
 
 Example:
 ```
-cargo run bf_src/hello_world.bf
+cargo run -- ./bf_src/hello_world.bf
 ```
