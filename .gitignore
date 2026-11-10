@@ -1,1 +1,3 @@
 /target
+/llvm_ir
+/.cargo/config.toml

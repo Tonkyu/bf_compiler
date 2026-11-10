@@ -1,125 +1,67 @@
-use std::io::{self, Read, Write};
+mod codegen;
+mod interpreter;
+mod parser;
+
+use std::path::{Path, PathBuf};
 use std::{env, fs, process};
 
-#[derive(Debug, PartialEq, Clone)]
-enum Op{
-    Add(u8),
-    Move(isize),
-    Output,
-    Input,
-    Loop(Vec<Op>),
-}
+use inkwell::context::Context;
 
-fn parse(code: &str) -> Vec<Op>{
-    let mut ops = Vec::new();
-    let chars: Vec<char> = code.chars().collect();
-    let mut i = 0;
+use codegen::CodeGen;
+use interpreter::Interpreter;
 
-    while i < chars.len() {
-        match chars[i] {
-            '+' | '-' => {
-                let mut count = 0i32;
-                while i < chars.len() && (chars[i] == '+' || chars[i] == '-') {
-                    if chars[i] == '+' { count += 1; } else { count -= 1; }
-                    i += 1;
-                }
-                ops.push(Op::Add(count as u8));
-                continue;   
-            }
-            '>' | '<' => {
-                let mut offset = 0isize;
-                while i < chars.len() && (chars[i] == '>' || chars[i] == '<') {
-                    if chars[i] == '>' { offset += 1; } else { offset -= 1; }
-                    i += 1;
-                }
-                ops.push(Op::Move(offset));
-                continue;
-            }
-            '.' => ops.push(Op::Output),
-            ',' => ops.push(Op::Input),
-            '[' => {
-                let start = i + 1;
-                let mut depth = 1;
-                i += 1;
-                while i < chars.len() && depth > 0 {
-                    if chars[i] == '[' { depth += 1; }
-                    if chars[i] == ']' { depth -= 1; }
-                    i += 1;
-                }
-                let inner = &code[start..i - 1];
-                ops.push(Op::Loop(parse(inner)));
-                continue;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    ops
-}
-
-pub struct Interpreter {
-    memory: Vec<u8>,
-    ptr: usize,
-}
-
-impl Interpreter {
-    fn new() -> Self {
-        Self {
-            memory: vec![0; 300000],
-            ptr: 0,
-        }
-    }
-
-    fn run(&mut self, ops: &[Op]) {
-        for op in ops {
-            match op {
-                Op::Add(val) => {
-                    self.memory[self.ptr] = self.memory[self.ptr].wrapping_add(*val);
-                }
-                Op::Move(offset) => {
-                    if *offset >= 0 {
-                        self.ptr += *offset as usize;
-                    } else {
-                        self.ptr -= (-offset) as  usize;
-                    }
-                }
-                Op::Output => {
-                    io::stdout().write_all(&[self.memory[self.ptr]]).unwrap();
-                }
-                Op::Input => {
-                    let mut buf = [0u8; 1];
-                    if io::stdin().read_exact(&mut buf).is_ok() {
-                        self.memory[self.ptr] = buf[0];
-                    }
-                }
-                Op::Loop(inner_ops) => {
-                    while self.memory[self.ptr] != 0 {
-                        self.run(inner_ops);
-                    }
-                }
-            }
-        }
-    }
+fn usage(prog: &str) -> ! {
+    eprintln!("Usage:");
+    eprintln!("  {prog} <file.bf>                          interpret");
+    eprintln!("  {prog} --emit-llvm <file.bf> [-o out.ll]  emit LLVM IR");
+    process::exit(1);
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let prog = args[0].as_str();
 
-    if args.len() < 2 {
-        eprintln!("Usage: {} <path-to-bf-file>", args[0]);
-        process::exit(1);
+    let mut emit_llvm = false;
+    let mut output: Option<PathBuf> = None;
+    let mut input: Option<PathBuf> = None;
+
+    let mut it = args.iter().skip(1);
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--emit-llvm" => emit_llvm = true,
+            "-o" => output = Some(it.next().unwrap_or_else(|| usage(prog)).into()),
+            _ if input.is_none() => input = Some(arg.into()),
+            _ => usage(prog),
+        }
     }
+    let input = input.unwrap_or_else(|| usage(prog));
 
-    let file_path = &args[1];
-    let code = match fs::read_to_string(file_path) {
-        Ok(content) => content,
-        Err(err) => {
-            eprintln!("Error: Failed to read file '{}': {}", file_path, err);
+    let code = fs::read_to_string(&input).unwrap_or_else(|e| {
+        eprintln!("Error: Failed to read file '{}': {e}", input.display());
+        process::exit(1);
+    });
+
+    let ops = parser::parse(&code).unwrap_or_else(|e| {
+        eprintln!("Parse error: {e}");
+        process::exit(1);
+    });
+
+    if emit_llvm {
+        let output = output.unwrap_or_else(|| input.with_extension("ll"));
+        if let Err(e) = emit_ir(&ops, &input, &output) {
+            eprintln!("Error: {e}");
             process::exit(1);
         }
-    };
+    } else {
+        Interpreter::new().run(&ops);
+    }
+}
 
-    let ops = parse(&code);
-    let mut interpreter = Interpreter::new();
-    interpreter.run(&ops);
+fn emit_ir(ops: &[parser::Op], input: &Path, output: &Path) -> Result<(), String> {
+    let context = Context::create();
+    let module_name = input.file_stem().and_then(|s| s.to_str()).unwrap_or("bf");
+    let module = CodeGen::new(&context, module_name).compile(ops)?;
+    module
+        .print_to_file(output)
+        .map_err(|e| format!("failed to write '{}': {}", output.display(), e.to_string()))
 }
