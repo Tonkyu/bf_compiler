@@ -14,6 +14,7 @@ fn usage(prog: &str) -> ! {
     eprintln!("Usage:");
     eprintln!("  {prog} <file.bf>                          interpret");
     eprintln!("  {prog} --emit-llvm <file.bf> [-o out.ll]  emit LLVM IR");
+    eprintln!("  {prog} --dump-ops <file.bf>               print parsed ops");
     process::exit(1);
 }
 
@@ -22,6 +23,7 @@ fn main() {
     let prog = args[0].as_str();
 
     let mut emit_llvm = false;
+    let mut dump_ops = false;
     let mut output: Option<PathBuf> = None;
     let mut input: Option<PathBuf> = None;
 
@@ -29,6 +31,7 @@ fn main() {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--emit-llvm" => emit_llvm = true,
+            "--dump-ops" => dump_ops = true,
             "-o" => output = Some(it.next().unwrap_or_else(|| usage(prog)).into()),
             _ if input.is_none() => input = Some(arg.into()),
             _ => usage(prog),
@@ -46,7 +49,9 @@ fn main() {
         process::exit(1);
     });
 
-    if emit_llvm {
+    if dump_ops {
+        print!("{}", parser::pretty(&ops));
+    } else if emit_llvm {
         let output = output.unwrap_or_else(|| input.with_extension("ll"));
         if let Err(e) = emit_ir(&ops, &input, &output) {
             eprintln!("Error: {e}");

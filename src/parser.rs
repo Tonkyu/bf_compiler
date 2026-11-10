@@ -73,6 +73,31 @@ fn parse_block(bytes: &[u8], i: &mut usize, in_loop: bool) -> Result<Vec<Op>, St
     }
 }
 
+/// `Op` の列をループごとにインデントした読みやすい形に整形する。
+/// `Add` は符号付きで表示する（`Add(255)` は `Add(-1)`）。
+pub fn pretty(ops: &[Op]) -> String {
+    let mut out = String::new();
+    write_ops(ops, 0, &mut out);
+    out
+}
+
+fn write_ops(ops: &[Op], depth: usize, out: &mut String) {
+    let indent = "    ".repeat(depth);
+    for op in ops {
+        match op {
+            Op::Add(n) => out.push_str(&format!("{indent}Add({:+})\n", *n as i8)),
+            Op::Move(n) => out.push_str(&format!("{indent}Move({n:+})\n")),
+            Op::Output => out.push_str(&format!("{indent}Output\n")),
+            Op::Input => out.push_str(&format!("{indent}Input\n")),
+            Op::Loop(body) => {
+                out.push_str(&format!("{indent}Loop {{\n"));
+                write_ops(body, depth + 1, out);
+                out.push_str(&format!("{indent}}}\n"));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,6 +115,15 @@ mod tests {
                     Op::Move(-1),
                 ]),
             ]
+        );
+    }
+
+    #[test]
+    fn pretty_prints_with_indentation() {
+        let ops = parse("+>[-<.]").unwrap();
+        assert_eq!(
+            pretty(&ops),
+            "Add(+1)\nMove(+1)\nLoop {\n    Add(-1)\n    Move(-1)\n    Output\n}\n"
         );
     }
 

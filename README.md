@@ -11,6 +11,12 @@
 cargo run -- ./bf_src/hello_world.bf
 ```
 
+### Dump Parsed Ops
+```
+cargo run -- --dump-ops ./bf_src/hello_world.bf
+```
+パース後の `Op` 列をループごとにインデントして表示する（実行はしない）
+
 ### Emit LLVM IR
 ```
 cargo run -- --emit-llvm ./bf_src/hello_world.bf -o hello_world.ll
